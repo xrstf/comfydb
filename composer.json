@@ -1,0 +1,29 @@
+{
+    "name": "xrstf/comfydb",
+    "description": "ComfyDB is a tiny wrapper around PDO to provide some convenience functions and sprintf-like query construction.",
+    "keywords": [
+        "pdo",
+        "database"
+    ],
+    "authors": [
+        {
+            "name": "Christoph Mewes",
+            "homepage": "https://xrstf.de/"
+        }
+    ],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": ">=5.4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "xrstf\\": "src/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-default": "1.x-dev"
+        }
+    }
+}
