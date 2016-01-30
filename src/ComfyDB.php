@@ -2,31 +2,29 @@
 
 namespace xrstf;
 
-use PDO;
-use PDOException;
+use mysqli;
 
 class ComfyDB {
 	protected $conn;
 	protected $logfile;
 
-	public function __construct(PDO $connection, $logfile = null) {
+	public function __construct(mysqli $connection, $logfile = null) {
 		$this->conn    = $connection;
 		$this->logfile = $logfile;
-
-		$this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		$this->exec('SET NAMES utf8');
 	}
 
-	public static function connect($host, $username, $password, $database, array $options = []) {
-		$dsn = sprintf('mysql:host=%s;dbname=%s;charset=utf8', $host, $database);
+	public static function connect($host, $username, $password, $database, $logfile = null, $charset = 'utf8') {
+		$db = new mysqli($host, $username, $password, $database);
 
-		return self::connectToDSN($dsn, $username, $password, $options);
-	}
+		if ($db->connect_errno) {
+			throw new ComfyException('CONNECT', $db->connect_errno, $db->connect_error);
+		}
 
-	public static function connectToDSN($dsn, $username, $password, array $options = []) {
-		$logfile = isset($options['logfile']) ? $options['logfile'] : null;
+		if ($charset !== null) {
+			$db->set_charset($charset);
+		}
 
-		return new static(new PDO($dsn, $username, $password, $options), $logfile);
+		return new static($db, $logfile);
 	}
 
 	public function setLogfile($logfile) {
@@ -37,15 +35,7 @@ class ComfyDB {
 		return $this->conn;
 	}
 
-	public function exec($query, array $data = null) {
-		return $this->send('exec', $query, $data);
-	}
-
 	public function query($query, array $data = null) {
-		return $this->send('query', $query, $data)->fetchAll(PDO::FETCH_ASSOC);
-	}
-
-	protected function send($style, $query, array $data = null) {
 		if ($data !== null && count($data) > 0) {
 			$query = $this->formatQuery($query, $data);
 		}
@@ -54,37 +44,37 @@ class ComfyDB {
 			$before = microtime(true);
 		}
 
-		$result = null;
-		$error  = null;
-
-		try {
-			if ($style === 'exec') {
-				$result = $this->conn->exec($query);
-			}
-			else {
-				$result = $this->conn->query($query);
-			}
-		}
-		catch (PDOException $e) {
-			$error = $e;
-		}
+		$result = $this->conn->query($query);
 
 		if ($this->logfile) {
 			$duration = microtime(true) - $before;
 			$logline  = sprintf('/* %.4Fs */ %s;', $duration, $query);
 
-			if ($error) {
-				$logline .= sprintf(' -- ERROR: %s', $e->getMessage());
+			if ($result === false) {
+				$logline .= sprintf(' -- ERROR (%d): %s', $this->conn->errno, $this->conn->error);
 			}
 
 			file_put_contents($this->logfile, "$logline\n", FILE_APPEND);
 		}
 
-		if ($error) {
-			throw $error;
+		if ($result === false) {
+			throw new ComfyException($query, $this->conn->errno, $this->conn->error);
 		}
 
-		return $result;
+		if ($result === true) {
+			throw $result;
+		}
+
+		$rows = [];
+
+		// do not use ->fetch_all(), as it's mysqlnd-only
+		while ($row = $result->fetch_assoc()) {
+			$rows[] = $row;
+		}
+
+		$result->free();
+
+		return $rows;
 	}
 
 	public function fetch($query, array $data = null) {
@@ -138,8 +128,7 @@ class ComfyDB {
 		$params = array_merge($params, $whereParams);
 
 		$query = sprintf('UPDATE `%s` SET %s WHERE %s', $table, implode(', ', $updates), $whereClause);
-
-		return $this->exec($query, $params);
+		$this->query($query, $params);
 	}
 
 	public function insert($table, array $data) {
@@ -154,25 +143,26 @@ class ComfyDB {
 		}
 
 		$query = sprintf('INSERT INTO `%s` (%s) VALUES (%s)', $table, implode(', ', $columns), implode(', ', $values));
-		$this->exec($query, $params);
-
-		return $this->getInsertedID();
+		$this->query($query, $params);
 	}
 
 	public function delete($table, $where) {
 		list($whereClause, $params) = $this->buildWhereClause($where);
 
 		$query = sprintf('DELETE FROM `%s` WHERE %s', $table, $whereClause);
-
-		return $this->exec($query, $params);
+		$this->query($query, $params);
 	}
 
 	public function getInsertedID() {
-		return $this->conn->lastInsertId();
+		return $this->conn->insert_id;
 	}
 
-	public function quote($s, $type = PDO::PARAM_STR) {
-		return $this->conn->quote($s, $type);
+	public function getAffectedRows() {
+		return $this->conn->affected_rows;
+	}
+
+	public function quote($s) {
+		return "'".$this->conn->real_escape_string($s)."'";
 	}
 
 	/**
@@ -181,13 +171,12 @@ class ComfyDB {
 	 * @src http://schlueters.de/blog/archives/155-Escaping-from-the-statement-mess.html
 	 */
 	public function formatQuery($query, array $args) {
-		$c            = $this->conn;
 		$modify_funcs = [
-			'n' => function($v) use ($c) { return $v === null ? 'NULL' : $c->quote($v); },
-			's' => function($v) use ($c) { return $c->quote($v);                        },
-			'd' => function($v) use ($c) { return (int) $v;                             },
-			'i' => function($v) use ($c) { return (int) $v;                             }, // alias for %d
-			'f' => function($v) use ($c) { return (float) $v;                           }
+			'n' => function($v) { return $v === null ? 'NULL' : $this->quote($v); },
+			's' => function($v) { return $this->quote($v);                        },
+			'd' => function($v) { return (int) $v;                                },
+			'i' => function($v) { return (int) $v;                                }, // alias for %d
+			'f' => function($v) { return (float) $v;                              }
 		];
 
 		return preg_replace_callback(

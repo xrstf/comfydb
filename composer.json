@@ -1,6 +1,6 @@
 {
     "name": "xrstf/comfydb",
-    "description": "ComfyDB is a tiny wrapper around PDO to provide some convenience functions and sprintf-like query construction.",
+    "description": "ComfyDB is a tiny wrapper around mysqli to provide some convenience functions and sprintf-like query construction.",
     "keywords": [
         "pdo",
         "database"
@@ -14,7 +14,8 @@
     "license": "MIT",
     "type": "library",
     "require": {
-        "php": ">=5.4.0"
+        "php": ">=5.4.0",
+        "ext-mysqli": "*"
     },
     "autoload": {
         "psr-4": {
