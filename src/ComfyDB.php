@@ -62,7 +62,7 @@ class ComfyDB {
 		}
 
 		if ($result === true) {
-			throw $result;
+			return $result;
 		}
 
 		$rows = [];
