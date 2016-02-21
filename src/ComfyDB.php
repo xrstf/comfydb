@@ -146,6 +146,8 @@ class ComfyDB {
 
 		$query = sprintf('INSERT INTO `%s` (%s) VALUES (%s)', $table, implode(', ', $columns), implode(', ', $values));
 		$this->query($query, $params);
+
+		return $this->getInsertedID();
 	}
 
 	public function delete($table, $where) {
