@@ -7,10 +7,12 @@ use mysqli;
 class ComfyDB {
 	protected $conn;
 	protected $logfile;
+	protected $inTrx;
 
 	public function __construct(mysqli $connection, $logfile = null) {
 		$this->conn    = $connection;
 		$this->logfile = $logfile;
+		$this->inTrx   = $inTrx;
 	}
 
 	public static function connect($host, $username, $password, $database, $logfile = null, $charset = 'utf8') {
@@ -163,6 +165,55 @@ class ComfyDB {
 
 	public function quote($s) {
 		return "'".$this->conn->real_escape_string($s)."'";
+	}
+
+	public function begin($flags = null) {
+		if ($this->conn->begin_transaction($flags) === false) {
+			throw new ComfyException('BEGIN', $db->connect_errno, $db->connect_error);
+		}
+
+		$this->inTrx = true;
+	}
+
+	public function commit($flags = null) {
+		if ($this->conn->commit($flags) === false) {
+			throw new ComfyException('COMMIT', $db->connect_errno, $db->connect_error);
+		}
+
+		$this->inTrx = false;
+	}
+
+	public function rollback($flags = null) {
+		if ($this->conn->rollback($flags) === false) {
+			throw new ComfyException('ROLLBACK', $db->connect_errno, $db->connect_error);
+		}
+
+		$this->inTrx = false;
+	}
+
+	public function transactional($callback) {
+		$myTrx = !$this->inTrx;
+
+		if ($myTrx) {
+			$this->begin();
+		}
+
+		try {
+			$return = $callback($this);
+
+			if ($myTrx) {
+				$this->commit();
+			}
+
+			return $return;
+		}
+		catch (\Exception $e) {
+			if ($myTrx) {
+				$this->rollback();
+			}
+
+			throw $e;
+		}
 	}
 
 	/**
