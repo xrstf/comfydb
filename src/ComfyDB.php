@@ -12,7 +12,7 @@ class ComfyDB {
 	public function __construct(mysqli $connection, $logfile = null) {
 		$this->conn    = $connection;
 		$this->logfile = $logfile;
-		$this->inTrx   = $inTrx;
+		$this->inTrx   = false;
 	}
 
 	public static function connect($host, $username, $password, $database, $logfile = null, $charset = 'utf8') {
